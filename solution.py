@@ -54,7 +54,20 @@ class CRSproblem(search.Problem):
 
     def cost(self, sol):
         """Compute cost of solution sol."""
-        pass
+
+        F = 0
+
+        for i in range (self.N):
+            u , v = sol[i]
+            task = self.tasks[i]
+
+            c = u + self.tasks[i].p
+
+            f = c - self.tasks[i].a
+
+            F += self.tasks[i].w * f
+
+        return F
 
     def check(self, sol):
         """Check if solution sol satisfies problem constraints."""
