@@ -1,1 +1,2 @@
-*.pdf
+*.pdf__pycache__/
+*.pyc
