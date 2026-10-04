@@ -1,4 +1,6 @@
 import search
+import sys
+import ast
 from dataclasses import dataclass
 
 @dataclass
@@ -75,15 +77,45 @@ class CRSproblem(search.Problem):
 
 # ---------------------------------------------------------
 # Local Testing Area
-# ---------------------------------------------------------
+# --------------------------------------------------------
+
+# PARA TESTAR, INVOCAR O SCRIPT ASSIM: python solution.py <path_and_name_without_extension>
+# EXEMPLO: python solution.py Public/costum1
+
 if __name__ == "__main__":
-    # Any code written in this block only runs if you execute THIS script directly.
-    # The Moodle auto-grader will ignore it, making it the perfect place to test!
+    # Check if the base path argument was provided
+    if len(sys.argv) < 2:
+        print("Usage: python solution.py <path_and_name_without_extension>")
+        print("Example: python solution.py test/test")
+        sys.exit(1)
+        
+    base_path = sys.argv[1]
+    dat_path = base_path + ".dat"
+    plan_path = base_path + ".plan"
     
-    print("Testing CRSproblem...")
+    print(f"Loading problem from: {dat_path}")
     my_problem = CRSproblem()
     
-    # Example of how you might test your load function later:
-    # with open("example1.dat", "r") as file:
-    #     my_problem.load(file)
-    #     print("Cost:", my_problem.cost([(10,0), (11,2), (3,4), (0,0)]))
+    try:
+        # 1. Load the .dat file
+        with open(dat_path, "r") as dat_file:
+            my_problem.load(dat_file)
+            
+        print(f"Problem successfully loaded! (S: {my_problem.S}, N: {my_problem.N})")
+        
+        # 2. Read and parse the .plan file
+        print(f"Reading solution plan from: {plan_path}")
+        with open(plan_path, "r") as plan_file:
+            plan_content = plan_file.read().strip()
+            solution = ast.literal_eval(plan_content)
+            
+        print(f"Parsed solution: {solution}")
+        
+        # 3. Calculate and print the cost
+        total_cost = my_problem.cost(solution)
+        print(f"Total cost (F): {total_cost}")
+        
+    except FileNotFoundError as e:
+        print(f"Error: File not found -> {e}")
+    except Exception as e:
+        print(f"An error occurred: {e}")
