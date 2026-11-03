@@ -1,6 +1,4 @@
 import search
-import sys
-import ast
 from dataclasses import dataclass
 
 @dataclass
@@ -18,104 +16,91 @@ class CRSproblem(search.Problem):
         the CRS problem should be saved."""
         self.initial = None
 
-        self.S = None # number of CPU's (iniciei a None para não existirerem erros caso não seja inicializado com o load)
+        self.S = None # number of CPU's
         self.N = None # number of tasks
-        self.tasks = [] # list of tasks, each task is a tuple (time of arrival, duration of execution, number of cpus required, priority weight)
+        self.tasks = [] # list of tasks (time of arrival, duration, number of cpus, priority weight)
 
     def load(self, fh):
         """loads a CRS problem from the file object fh.
         You may initialize self.initial here."""
 
         for line in fh:
-
-            # 1. Clean up the line (remove \n)
             line = line.strip()
-            
-            # 2. Skip empty lines or comment lines
             if not line or line.startswith('#'):
                 continue
 
-            # 3. Split the line into parts
             data = line.split()
 
             if self.S is None:
-                # This is the first line, which contains the number of CPUs
                 self.S = int(data[0])
                 self.N = int(data[1])
-
             else:
-                # This is a task line, which contains the task parameters
-                a = int(data[0])  # time of arrival
-                p = int(data[1])  # duration of execution
-                s = int(data[2])  # number of CPUs required
-                w = int(data[3])  # priority weight
+                a, p, s, w = map(int, data[:4])
+                self.tasks.append(Task(a, p, s, w))
 
-                # Create a Task object and add it to the list of tasks
-                new_task = Task(a, p, s, w)
-                self.tasks.append(new_task)
+        # state: (current time, bitmask of started tasks, for each cpu the time it becomes free)
+        t0 = min(t.a for t in self.tasks)
+        self.initial = (t0, 0, (t0,) * self.S)
 
-    def cost(self, sol):
-        """Compute cost of solution sol."""
+    def actions(self, state):
+        """Returns the list of actions that can be executed in the given state.
+        An action (i, v) starts task i now on cpus v..v+s-1; None advances the
+        time to the next arrival or cpu release."""
+        now, done, free = state
+        acts = []
+        for i, t in enumerate(self.tasks):
+            if done >> i & 1 or t.a > now:
+                continue
+            for v in range(self.S - t.s + 1):
+                if all(f <= now for f in free[v:v + t.s]):
+                    acts.append((i, v))
+        if self.next_time(state) is not None:
+            acts.append(None)
+        return acts
 
-        F = 0
+    def next_time(self, state):
+        """Returns the next time something changes after the current one, if any."""
+        now, done, free = state
+        times = [t.a for i, t in enumerate(self.tasks) if not done >> i & 1]
+        times += free
+        return min((x for x in times if x > now), default=None)
 
-        for i in range (self.N):
-            u , v = sol[i]
-            task = self.tasks[i]
+    def result(self, state, action):
+        """Returns the state that results from executing the given action in the given state."""
+        now, done, free = state
+        if action is None:
+            now = self.next_time(state)
+            return now, done, tuple(max(f, now) for f in free)
+        i, v = action
+        t = self.tasks[i]
+        return now, done | 1 << i, free[:v] + (now + t.p,) * t.s + free[v + t.s:]
 
-            c = u + self.tasks[i].p
+    def goal_test(self, state):
+        """Returns True if every task has started."""
+        return state[1] == (1 << self.N) - 1
 
-            f = c - self.tasks[i].a
+    def path_cost(self, c, state1, action, state2):
+        """Returns the cost of a solution path that arrives at state2 from
+        state1 via action, assuming cost c to get up to state1. The total
+        weighted flow time is the sum of the weighted durations, charged on the
+        first step, plus the weight of each waiting task per unit of time."""
+        now, done, free = state1
+        if state1 == self.initial:
+            c += sum(t.w * t.p for t in self.tasks)
+        if action is None:
+            waiting = sum(t.w for i, t in enumerate(self.tasks) if not done >> i & 1 and t.a <= now)
+            c += waiting * (state2[0] - now)
+        return c
 
-            F += self.tasks[i].w * f
-
-        return F
-
-    def check(self, sol):
-        """Check if solution sol satisfies problem constraints."""
-        pass
-
-# ---------------------------------------------------------
-# Local Testing Area
-# --------------------------------------------------------
-
-# PARA TESTAR, INVOCAR O SCRIPT ASSIM: python solution.py <path_and_name_without_extension>
-# EXEMPLO: python solution.py Public/costum1
-
-if __name__ == "__main__":
-    # Check if the base path argument was provided
-    if len(sys.argv) < 2:
-        print("Usage: python solution.py <path_and_name_without_extension>")
-        print("Example: python solution.py test/test")
-        sys.exit(1)
-        
-    base_path = sys.argv[1]
-    dat_path = base_path + ".dat"
-    plan_path = base_path + ".plan"
-    
-    print(f"Loading problem from: {dat_path}")
-    my_problem = CRSproblem()
-    
-    try:
-        # 1. Load the .dat file
-        with open(dat_path, "r") as dat_file:
-            my_problem.load(dat_file)
-            
-        print(f"Problem successfully loaded! (S: {my_problem.S}, N: {my_problem.N})")
-        
-        # 2. Read and parse the .plan file
-        print(f"Reading solution plan from: {plan_path}")
-        with open(plan_path, "r") as plan_file:
-            plan_content = plan_file.read().strip()
-            solution = ast.literal_eval(plan_content)
-            
-        print(f"Parsed solution: {solution}")
-        
-        # 3. Calculate and print the cost
-        total_cost = my_problem.cost(solution)
-        print(f"Total cost (F): {total_cost}")
-        
-    except FileNotFoundError as e:
-        print(f"Error: File not found -> {e}")
-    except Exception as e:
-        print(f"An error occurred: {e}")
+    def solve(self):
+        """Calls the uninformed search algorithm chosen.
+        Returns a solution using the specified format."""
+        node = search.uniform_cost_search(self)
+        if node is None:
+            return None
+        sol = [None] * self.N
+        for n in node.path()[1:]:
+            if n.action is not None:
+                i, v = n.action
+                sol[i] = (n.parent.state[0], v)
+        return sol
